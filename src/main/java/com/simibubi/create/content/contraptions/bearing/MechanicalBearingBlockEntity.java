@@ -75,7 +75,8 @@ public class MechanicalBearingBlockEntity extends GeneratingKineticBlockEntity
 	@Override
 	public void write(CompoundTag compound, boolean clientPacket) {
 		compound.putBoolean("Running", running);
-		compound.putFloat("Angle", angle);
+		compound.putFloat("Angle", movedContraption != null ? movedContraption.getAngle(1)
+				: angle);
 		if (sequencedAngleLimit >= 0)
 			compound.putDouble("SequencedAngleLimit", sequencedAngleLimit);
 		AssemblyException.write(compound, lastException);

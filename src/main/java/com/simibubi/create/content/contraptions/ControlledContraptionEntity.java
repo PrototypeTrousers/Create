@@ -8,6 +8,7 @@ import com.simibubi.create.AllEntityTypes;
 import com.simibubi.create.content.contraptions.bearing.BearingContraption;
 import com.simibubi.create.content.contraptions.behaviour.MovementBehaviour;
 import com.simibubi.create.content.contraptions.behaviour.MovementContext;
+import com.simibubi.create.foundation.utility.AngleHelper;
 import com.simibubi.create.foundation.utility.NBTHelper;
 import com.simibubi.create.foundation.utility.VecHelper;
 
@@ -25,6 +26,8 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
+import org.apache.commons.lang3.tuple.MutablePair;
+
 /**
  * Ex: Pistons, bearings <br>
  * Controlled Contraption Entities can rotate around one axis and translate.
@@ -38,6 +41,8 @@ public class ControlledContraptionEntity extends AbstractContraptionEntity {
 	protected float prevAngle;
 	protected float angle;
 	protected float angleDelta;
+	protected float length;
+	protected float maxStep;
 
 	public ControlledContraptionEntity(EntityType<?> type, Level world) {
 		super(type, world);
@@ -51,7 +56,7 @@ public class ControlledContraptionEntity extends AbstractContraptionEntity {
 		entity.setContraption(contraption);
 		return entity;
 	}
-	
+
 	@Override
 	public void setPos(double x, double y, double z) {
 		super.setPos(x, y, z);
@@ -123,10 +128,17 @@ public class ControlledContraptionEntity extends AbstractContraptionEntity {
 	}
 
 	public void setAngle(float angle) {
-		this.angle = angle;
 
-		if (!level.isClientSide())
+		if (!level.isClientSide()) {
+			this.angle = angle;
 			return;
+		} else if(!isStalled()) {
+			this.angle = angle;
+		}
+		 else {
+			 this.angle = this.prevAngle;
+			 this.angleDelta = 0;
+		}
 		for (Entity entity : getPassengers())
 			positionRider(entity);
 	}
@@ -151,9 +163,73 @@ public class ControlledContraptionEntity extends AbstractContraptionEntity {
 	public void lerpTo(double x, double y, double z, float yw, float pt, int inc, boolean t) {}
 
 	protected void tickContraption() {
-		angleDelta = angle - prevAngle;
-		prevAngle = angle;
-		tickActors();
+		if (level.isClientSide && isStalled())
+		{
+			tickActors();
+			return;
+		}
+		if (length == 0) {
+			for (BlockPos blockPos : contraption.blocks.keySet()) {
+				int xDifference = Math.abs(blockPos.getX());
+				int yDifference = Math.abs(blockPos.getY());
+				int zDifference = Math.abs(blockPos.getZ());
+
+				if (xDifference > length) {
+					length = xDifference;
+				}
+
+				if (yDifference > length) {
+					length = yDifference;
+				}
+
+				if (zDifference > length) {
+					length = zDifference;
+				}
+			}
+			maxStep = (float) Math.acos((4 * Math.pow(length, 2) - 2) / (4 * Math.pow(length, 2)));
+			maxStep = (float) (maxStep * 180 / Math.PI);
+		}
+
+		angleDelta = AngleHelper.getShortestAngleDiff(prevAngle, angle);
+
+		float cur = prevAngle;
+
+		float diff = AngleHelper.getShortestAngleDiff(prevAngle, angle);
+		if (diff<0) {
+			maxStep = - Math.abs(maxStep);
+		} else {
+			maxStep = Math.abs(maxStep);
+		}
+
+		if (Math.abs(diff) > Math.abs(maxStep)) {
+			int steps = (int) Math.abs(diff / maxStep);
+			float remainder = diff % maxStep;
+			angleDelta = maxStep;
+			for (int i = 0; i < steps; i++) {
+				if (contraption.stalled)
+				{
+					remainder = 0;
+					break;
+				}
+				prevAngle = cur;
+				cur += maxStep;
+				cur = cur % 360;
+				angle = cur;
+				tickActors();
+			}
+			if (remainder != 0) {
+				prevAngle = cur;
+				cur += remainder;
+				cur = cur % 360;
+				angle = cur;
+				angleDelta = remainder;
+				tickActors();
+			}
+			prevAngle = angle;
+		} else {
+			prevAngle = angle;
+			tickActors();
+		}
 
 		if (controllerPos == null)
 			return;
